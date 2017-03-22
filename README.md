@@ -38,6 +38,10 @@ While all these general purpose sandboxing applications have their uses, there i
 ...
 
 
+Application deployment framework with sandbox support:
+
+- [flatpak](https://github.com/flatpak/flatpak/wiki)
+
 
 ## Developing Sandboxes / Integrating native sandbox support in applications
 
@@ -50,40 +54,80 @@ Before seccomp support can be implemented in an existing application, it's resou
 While the generate list of used system calls can be applied at the start of the target application, this should be only the beginning the the use of seccomp. While a once loaded seccomp filter list can not be made less restrictive during the lifetime of the process, it can be made more restrictive. After an application has been initialized, many syscalls are never used again and can be blocked as well. This is especially useful at the point right before the dangerous part of an application, like e.g. parsing a file. At this stage the allowed syscall list might be restricted to a point where even if a malicious file is loaded and an vulnerability is exploited, the resulting access the attacker gained is insignificant and no harmful code can be successfully executed. But even if this is not the case and the application repeatedly needs access to many system calls, the reduced kernel attack surface may very well prevent a successful root exploit. In that case an attack would need to exploit another process or service first before the kernel can be attacked. When used in combination with namespaces, this might also be impossible.     
 
 
-## Linux desktop security weakpoints
+## Linux desktop security weak points
 
-(todo)
+There are several weak points on modern Linux desktop systems that may be used by an attacker to escalate privileges and to escape from an sandboxed environment. Some of those weak points originate from legacy software that can be avoided by switching to modern alternatives. By considering the remaining weak points and blocking access to vulnerable services, a sandbox can avoid those issues.
 
 
 ### X-Window-System
 
-(todo)
+One of the most vulnerable aspects of Linux desktop systems is the X-Window-System. This legacy software service usually runs as root on any desktop system and all user application have access to it. Using a vulnerability in a service run as root will lead to an escalation of privileges and therefore presents a major risk.
+However there is an even bigger issue with the X-Window-System that is also present when the service can be run with user privileges. All application can see the communication between every other application and the X-Server. This includes keyboard and mouse inputs. It is therefore trivial to capture all inputs from other applications, including passwords and other sensitive information. This key logging capability can not be effectively prevented as long as access to the X-Server is needed. More on this topic can be found [here](https://theinvisiblethings.blogspot.de/2011/04/linux-security-circus-on-gui-isolation.html).
+There are two ways to avoid this issue: The first and recommended way is to switch to another window system like wayland. With this new display protocol, isolation between application input is present and although key logging is [not](https://github.com/MaartenBaert/wayland-keylogger) impossible it demands some additional steps and can easily be prevented by sandboxing.
+The second way to isolate and prevent sandboxed programs to read sensitive input of other applications, is to run them in a separate window server like [xephyr](https://www.freedesktop.org/wiki/Software/Xephyr/). This is more a workaround then a solution but as long as support for the wayland protocol is not present in all major linux applications, the X-Windows-System will still need to be present.
+It should be said that preventing keylogging of application input is only possible for those applications that do not use the X-Window Server other applications have access to. If an application uses the wayland protocol, although it's input can not be read by other applications, it can still read the input of applications using the X-Window-System. This can however be prevented by using sandboxing techniques like namespaces to block access to the X-Window-System, in case the sandboxed application does not need access to it (because it is not a gui application or it uses wayland). Communication with the X-Window-System is done via unix domain sockets. See the IPC section for further information.
 
 
 ### Pulseaudio
 
-(todo)
+Pulseaudio is an audio server that has similar issues as the X-Window-Server when it comes to isolation and access permissions. As long as an application has access to this service it can freely access the microphone and speakers of the system. This can and is being used to spy on conversations as well as capture passwords by recording the keyboard sounds. Moreover audio can be used to transmit information out of band even when the system is not connected to the network. Therefore sandboxed application should not have access to this kind of service. Unfortunately some applications like new versions of firefox, demand pulseaudio in newer versions. One solution to work with these applications without installing or granting access to pulseaudio, is to use emulation software like [apulse](https://github.com/i-rinat/apulse). This will still grant access to audio hardware but eliminate a significant attack vector (pulseaudio). Even though access to any kind of (audio)hardware device should only be allowed if the target application needs it.
+Isolating available devices with namespaces is one solution to this issue.
 
 
 ### Interprocesscommunication (IPC) - Unix domain sockets
 
-(todo)
+Another system service that presents a problem for application isolation is the Dbus inter process service. This service allows applications to communicate with each other and exchange information but there are usually no access control features active on most systems. This means communication between all applications of a single user is possible, something that should be prevented for effective sandboxing. Like other services like the X-Window-Server and pulseaudio, dbus uses unix domain sockets to communicate with other processes. Unix domain sockets are local socket files that use the same access control features as normal files. However access to the dbus socket is permitted for anyone. Even if the sandboxed application makes use of the dbus service, many programs can still be used without it. Since access to dbus is pretty much equivalent with escape from the sandbox, access to it's sockets should be blocked, just like with other problematic services like the X-Window-System and pulseaudio. By blocking those sockets on file system level e.g. by using mount namespaces, access to the service can be blocked. However there is a catch when it comes to unix domain sockets. On Linux there is another kind of sockets called abstract sockets, that are often used in addition to file based sockets. The problem with abstract sockets is that they do not exists as files and can therefore not be blocked on file system level. The only effective way to block abstract sockets, is to use a network namespace. This will prevent access to these abstract sockets and therefore communication with other services and applications.
 
 
 ### Setuid root
 
-(todo)
+SUID applications are executed with system privileges but can be run by normal users. They are used to enable unprivileged users to make use of system functions that normally require root privileges. When such applications are designed in a secure way that only allows for the intended function to be executed with root privileges, this is not an issue. However if vulnerabilities are present this allows normal users to gain root privileges. Therefore this presents a major weak point on Linux systems that is often used by local root exploits.
+There are several sandboxing techniques that prevent the use of this suid bit to elevate privileges. Seccomp for example requires the no_new_privs flag to be set which prevents the sandboxed process to gain more privileges then it originally started with. Bubblewrap also make use of this flat. Mounting the filesystem with nosuid is also a valid way to prevent the execution of suid applications.
 
 
 ### Ptrace
 
-(todo)
+Ptrace can be used to manipulate the execution of other processes. While it is intended to be used for observing and debugging processes, is is also a dangerous function/syscall that can be used for elevated exploitation techniques. Preventing the use of ptrace inside a sandbox as well as preventing the use of ptrace on the sandboxed process is vital to enable effective isolation.
 
 
 ### Kernel interfaces
 
-(todo)
+User space applications can interact with the kernel via system calls. While there are several hundred syscalls available, most applications only use a small subset of those syscalls. Vulnerabilities in the kernel can be exploited by accessing the affected system calls. However by limiting the number of syscalls that a process has access to, the attack surface of the kernel can be significantly reduced. By using seccomp syscall filter, the number of available syscalls can be influenced. While limiting certain syscalls can reduce the impact of malware in general, it will always limit the attack surface of the kernel by blocking access to kernel functions the application does not need.
 
+
+
+## Application type and sandboxability
+
+pdf apps as example
+
+### Classical desktop app - evince
+
+- issues of large functionality and several windows, restructuring needed
+- too many dependencies and use cases to test everything
+
+### Minimal desktop app - mupdf
+
+- sandboxing possible with minor drawbacks
+
+
+### non graphical app - pdftotext
+
+- only dependency/problem is library dependency/changing syscalls
+
+- solution is pledge like filter
+
+
+### Combining broker architecture and seccomp
+
+- splitting the process in broker and renderer will result in effective sandboxing
+
+- check on ipc
+
+
+
+### Sandbox vs. container
+
+- Docker, lxc ...
 
 
 ### Documentations
