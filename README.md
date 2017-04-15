@@ -96,6 +96,10 @@ User space applications can interact with the kernel via system calls. While the
 
 
 
+(Section under construction)
+
+
+
 ## Application type and sandboxability
 
 pdf apps as example
@@ -121,13 +125,20 @@ pdf apps as example
 
 - splitting the process in broker and renderer will result in effective sandboxing
 
-- check on ipc
-
+- check on ipc, needs to be carefully designed
 
 
 ### Sandbox vs. container
 
 - Docker, lxc ...
+
+
+### Issues and the future of Sandboxing
+
+- Seccomp is too granular for easy and maintainable sandboxing (syscalls change too often)
+
+- Pledge gives a great example
+
 
 
 ### Documentations
