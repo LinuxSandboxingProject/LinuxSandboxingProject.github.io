@@ -137,6 +137,10 @@ pdf apps as example
 
 - Seccomp is too granular for easy and maintainable sandboxing (syscalls change too often)
 
+- Where it succeeded and what it takes
+
+- Example issues
+
 - Pledge gives a great example
 
 
