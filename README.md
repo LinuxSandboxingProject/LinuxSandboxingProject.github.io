@@ -125,7 +125,11 @@ pdf apps as example
 
 - splitting the process in broker and renderer will result in effective sandboxing
 
+- spilitting renderer will make use of a small number of syscalls, making filtering easier and maintainable
+
 - check on ipc, needs to be carefully designed
+
+
 
 
 ### Sandbox vs. container
