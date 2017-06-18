@@ -3,6 +3,8 @@
 This project aims to provide general information about Linux sandboxing technologies and existing sandboxing solutions.
 The goal of this project is to spread support for sandboxing in Linux applications.
 
+This project also includes sandbox implementations for several PDF applications to show the issues regarding sandboxability.
+
 
 ### What is a sandbox and how can it be useful?
 
@@ -96,36 +98,39 @@ User space applications can interact with the kernel via system calls. While the
 
 
 
-(Section under construction)
-
-
 
 ## Application type and sandboxability
 
-pdf apps as example
+As target for a sandbox implementation several pdf application have been chosen. PDF is a highly complex file format that itself contains many different media files like images, fonts, video and even javascript code. Vulnerabilities in PDF applications and the libraries used to parse and display the contained media are widespread. While common malware using the PDF fileformat usually targets Windows systems and the Adobe Acrobat Reader specifically, common linux applications parsing PDF files could be targeted as well. The fastest way to create malware for PDF files would be to include malicious javascript that breaks out of the application process. The Adobe Reader includes sandbox support in recent releases to prevent this easy exploit, but users deactivating the sandbox protection are still being infected. Most PDF parsing applications for linux do not fully support javascript in PDF files, but by exploiting a vulnerability in one of the many available image or font formats will still result in malicious code execution. Apart from proof of concept exploits this kind of malware has not yet been seen much in the wild. However, especially for targeted attacks by skilled adversaries this attack vector would be easy to exploit. Given that common PDF applications for linux do not include any kind of native sandbox, this would be a valuable target.       
+
 
 ### Classical desktop app - evince
+
+As one of the most common PDF applications for linux, evince is also one of the most complex ones. While is was possible to implement a sandbox for evince, using seccomp and linux namespaces, there are several shortcomings and issues that were revealed during the process. One of the most fundamental problems was the multi process design of evince. While a multi process architecture is usually a very convenient target for sandboxing, it requires the code to be designed to support the sandbox. When the evince process is launched by opening a PDF file, evince also starts the evinced daemon via dbus. Inside the applications, new documents can be opened as well which would create an additional evince process that is also coordinated by the evinced daemon process. However with sandboxing it would be desirable to restrict the applications to only a few allowed actions right before parsing the document. This however is not possible if the application is supposed to open new process for other documents. Also allowing a sandboxed application to communicate via dbus and start daemon processes defeats the purpose of sandboxing as well. By blocking access to dbus and thus preventing the optional evinced daemon process some extend of sandbox support could be implemented. However to create a more effective sandbox within evince, the application would need to be redesigned to use a broker architecture. This way a master process could be responsible for creating new evince processes that are restricted to only open a single document. The same functionality as the application already includes today would be available but the risk of opening malicious documents would be minimal. While this achitecture could be rather easily implemented, there is still a remaining problem presented by a large number of use cases that need testing to include sandbox support for a productive environment. This will be discussed later.
+
 
 - issues of large functionality and several windows, restructuring needed
 - too many dependencies and use cases to test everything
 
 ### Minimal desktop app - mupdf
 
+Mupdf is a rather minimal PDF application mainly designed to parse and display PDF documents at high speed. While the performance of this applications is incredible, it still needs many libraries for different file types, many of which include code with repeated vulnerabilities that can be exploited to execute malicious code. Since writing new PDF files is not supported on common linux systems (some support for android seems to exist), it is rather easy to restrict the process for effective sandboxing. Assuming the user is willing to open a new process for every file, the resulting sandbox is quite strong with over 90% of all available systemcalls blacklisted with seccomp. Namespaces can also help to further isolate the process and the target PDF file in a temporary readonly filesystem with no other process or resources to attack. After maintaining the sandboxed Mupdf application for several month and with several minor version upgrades, similar issues as with evince were made apparent. The most difficult issue to deal with is maintaining the correct systemcalls for seccomp filtering. With every change of a library several syscalls can change and need to be added to the whitelist. This will add a lot of work for application maintainers, many of which will not be willing to support this feature as a result.
+
 - sandboxing possible with minor drawbacks
 
 
 ### non graphical app - pdftotext
 
-- only dependency/problem is library dependency/changing syscalls
+(todo)
 
-- solution is pledge like filter
+- only dependency/problem is library dependency/changing syscalls
 
 
 ### Combining broker architecture and seccomp
 
 - splitting the process in broker and renderer will result in effective sandboxing
 
-- spilitting renderer will make use of a small number of syscalls, making filtering easier and maintainable
+- splitting renderer will make use of a small number of syscalls, making filtering easier and maintainable
 
 - check on ipc, needs to be carefully designed
 
@@ -138,6 +143,14 @@ pdf apps as example
 
 
 ### Issues and the future of Sandboxing
+
+
+The most important issue with seccomp is it's granular design. Requiring to allow or block single systemcalls gives developers a great deal of freedom. But this also means that with every change of the applications environment or dependencies the maintainer has to rework the list of allowed systemcalls. Requiring this level of attention and time to maintain an application will prevent any widespread use of this sandbox technology.
+
+OpenBSD has recently introduced a similar technology called pledge. Instead of blocking or allowing single systemcalls, pledge uses group of systemcall operations. After only one year, most of all core applications in the OpenBSD environment have pledge support implemented. There are some differences between the two filter technologies, but regarding maintainability, pledge seems to have chosen the better approach to support a widespread use of this technology. There is already some movement in the linux community to implement something more like pledge but this is not ready yet. However to allow for a widespread sandbox support in linux application something like pledge is needed as seccomp alone will make things too inconvenient for many maintainers to use.
+
+(todo)
+
 
 - Seccomp is too granular for easy and maintainable sandboxing (syscalls change too often)
 
